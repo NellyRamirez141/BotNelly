@@ -2,7 +2,7 @@ import os
 import logging
 import sqlite3
 import random
-from rapidfuzz import process
+from rapidfuzz import process, fuzz
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from dotenv import load_dotenv
@@ -48,11 +48,20 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             await update.message.reply_text("Respuesta guardada. ¿Quieres agregar otra respuesta para la misma pregunta? (sí/no)")
             context.user_data["waiting_confirmation"] = True
     else:
-        cursor.execute("SELECT bot_response FROM responses WHERE user_message = ?", (user_message,))
-        results = cursor.fetchall()
-        if results:
-            response = random.choice(results)[0]
-            await update.message.reply_text(response)
+        cursor.execute("SELECT user_message FROM responses")
+        saved_questions = [row[0] for row in cursor.fetchall()]
+
+        if saved_questions:
+            best_match, score = process.extractOne(user_message, saved_questions, scorer=fuzz.ratio)
+            if score > 80:  # Si la coincidencia es alta, responder con la mejor opción
+                cursor.execute("SELECT bot_response FROM responses WHERE user_message = ?", (best_match,))
+                results = cursor.fetchall()
+                if results:
+                    response = random.choice(results)[0]
+                    await update.message.reply_text(response)
+                    return
+        
+        await update.message.reply_text("No te entendí bb.")
 
 async def confirm_learning(update: Update, context: CallbackContext) -> None:
     global current_question
