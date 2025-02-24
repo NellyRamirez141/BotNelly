@@ -2,9 +2,10 @@ import os
 import logging
 import sqlite3
 import random
-from rapidfuzz import process, fuzz
+import asyncio
+from rapidfuzz import process
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram.ext import Application, MessageHandler, filters, CallbackContext
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -20,24 +21,26 @@ logging.basicConfig(
 conn = sqlite3.connect("bot_memory.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute(
-    "CREATE TABLE IF NOT EXISTS responses (user_message TEXT, bot_response TEXT)"
-)
+    "CREATE TABLE IF NOT EXISTS responses (user_message TEXT, bot_response TEXT)"")
 conn.commit()
 
-# Modo aprendizaje
+# Modo aprendizaje y contexto
+target_word = "stnelly141"
 learning_mode = False
 current_question = None
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     global learning_mode, current_question
     user_message = update.message.text.lower()
-
-    if user_message == "stnelly141":
+    
+    # Verifica si es la palabra clave para activar el aprendizaje
+    if user_message == target_word:
         learning_mode = not learning_mode
         state = "activado" if learning_mode else "desactivado"
         await update.message.reply_text(f"Modo aprendizaje {state}.")
         return
     
+    # Si está en modo aprendizaje
     if learning_mode:
         if current_question is None:
             current_question = user_message
@@ -48,18 +51,18 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             await update.message.reply_text("Respuesta guardada. ¿Quieres agregar otra respuesta para la misma pregunta? (sí/no)")
             context.user_data["waiting_confirmation"] = True
     else:
-        cursor.execute("SELECT user_message FROM responses")
-        saved_questions = [row[0] for row in cursor.fetchall()]
-
-        if saved_questions:
-            best_match, score = process.extractOne(user_message, saved_questions, scorer=fuzz.ratio)
-            if score > 80:  # Si la coincidencia es alta, responder con la mejor opción
-                cursor.execute("SELECT bot_response FROM responses WHERE user_message = ?", (best_match,))
-                results = cursor.fetchall()
-                if results:
-                    response = random.choice(results)[0]
-                    await update.message.reply_text(response)
-                    return
+        # Buscar coincidencias cercanas (corrección ortográfica)
+        cursor.execute("SELECT DISTINCT user_message FROM responses")
+        known_questions = [row[0] for row in cursor.fetchall()]
+        best_match, score, _ = process.extractOne(user_message, known_questions, score_cutoff=75)
+        
+        if best_match:
+            cursor.execute("SELECT bot_response FROM responses WHERE user_message = ?", (best_match,))
+            results = cursor.fetchall()
+            if results:
+                response = random.choice(results)[0]
+                await update.message.reply_text(response)
+                return
         
         await update.message.reply_text("No te entendí bb.")
 
@@ -71,7 +74,7 @@ async def confirm_learning(update: Update, context: CallbackContext) -> None:
             await update.message.reply_text("Ingresa la siguiente respuesta para la pregunta.")
         elif user_message == "no":
             current_question = None
-            await update.message.reply_text("Pregunta finalizada. Ingresa una nueva pregunta o usa 'stnelly141' para salir del modo aprendizaje.")
+            await update.message.reply_text(f"Pregunta finalizada. Ingresa una nueva pregunta o usa '{target_word}' para salir del modo aprendizaje.")
             context.user_data["waiting_confirmation"] = False
         return
 
