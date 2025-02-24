@@ -22,10 +22,10 @@ conn = sqlite3.connect("bot_memory.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute(
     "CREATE TABLE IF NOT EXISTS responses (user_message TEXT, bot_response TEXT)"
-)  # <--- Corregido
+)  
 conn.commit()
 
-# Modo aprendizaje y contexto
+# Variables de control
 target_word = "stnelly141"
 learning_mode = False
 current_question = None
@@ -42,12 +42,13 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Confirmación de aprendizaje
     if context.user_data["waiting_confirmation"]:
         if user_message == "sí":
-            await update.message.reply_text("Ingresa la siguiente respuesta para la pregunta.")
+            await update.message.reply_text("Ingresa otra respuesta para la misma pregunta:")
+            return
         elif user_message == "no":
             current_question = None
             await update.message.reply_text(f"Pregunta finalizada. Ingresa una nueva pregunta o usa '{target_word}' para salir del modo aprendizaje.")
             context.user_data["waiting_confirmation"] = False
-        return
+            return
 
     # Activar o desactivar modo aprendizaje
     if user_message == target_word:
@@ -56,7 +57,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text(f"Modo aprendizaje {state}.")
         return
     
-    # Modo aprendizaje
+    # Modo aprendizaje activo
     if learning_mode:
         if current_question is None:
             current_question = user_message
